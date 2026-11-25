@@ -146,7 +146,7 @@ def build(src, dst):
         if re.match(r'^表\s*\d+[　\s]', text):
             out.append('<p style="%s font-size:10.5pt; margin:10pt 0 4pt; '
                        'text-indent:0;">%s</p>' % (H_FONT, inline(text)))
-        elif re.match(r'^〔[^〕]+〕', text):
+        elif re.match(r'^(?:〔[^〕]+〕|\[\d+[a-z]?\])', text):
             out.append('<p style="%s font-size:10.5pt; line-height:1.4; margin:3pt 0; '
                        'text-indent:0; padding-left:1.5em;">%s</p>' % (BODY_FONT, inline(text)))
         elif text.startswith('*') and text.endswith('*') and len(text) > 2 and '**' not in text:

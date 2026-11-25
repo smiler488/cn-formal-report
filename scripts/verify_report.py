@@ -27,7 +27,7 @@ BANNED_TEXT = [
 BANNED_HEADING_WORDS = ['已', '须', '应', '需', '将', '为', '有',
                         '判断', '结论', '摘要', '核心判断']
 # 用户 2026-11-25 定稿删除的策论层与自评拔高：精确短语，不用宽泛词表。
-# 「归口」「最直接」「高度接近」「逐条对应」「口径」「建议稿」等在客观陈述中合法，不得据此禁用。
+# 「最直接」「高度接近」「逐条对应」「建议稿」等在客观陈述中合法，不得据此禁用。
 BANNED_DISCOURSE = [
     '主口径', '申报口径', '第一表述', '本次对接以', '本次拜访',
     '另案衔接', '平台立项取得', '书面意见', '政策窗口',
@@ -36,6 +36,8 @@ BANNED_DISCOURSE = [
     '可争取事项有三项', '具备项目承接主体的机构属性',
     '平台的产出为', '不以农业人工智能中心作为', '对应关系', '对照',
 ]
+# 用户 2026-11-25 追加明确：即使作客观职责陈述，这两个行业行话也全篇不用。
+BANNED_JARGON = ['归口', '口径']
 # 标题与表题不得用抽象关系词收尾
 BANNED_TITLE_WORDS = ['对应关系', '对照', '申报口径', '政策窗口', '建议稿']
 LEGIT_COMPOUNDS = ['有关', '有效', '有机', '有序', '应用', '对应',
@@ -101,8 +103,10 @@ def check_structure(path):
     results.append(('无辅助性文字与套话', not hits, '、'.join(hits)))
     discourse = [w for w in BANNED_DISCOURSE if w in prose]
     results.append(('无策论元话语与自评拔高', not discourse, '、'.join(discourse)))
+    jargon = [w for w in BANNED_JARGON if w in prose]
+    results.append(('无「归口／口径」等行话', not jargon, '、'.join(jargon)))
 
-    # 用户定稿口径：文号与引用序号全篇半角方括号，表题半角空格，并列引号加顿号。
+    # 用户定稿格式：文号与引用序号全篇半角方括号，表题半角空格，并列引号加顿号。
     fmt = []
     if '〔' in text or '〕' in text:
         fmt.append('六角括号（应统一用半角方括号）')
@@ -175,11 +179,32 @@ def check_structure(path):
     return results, raw, tbls, text
 
 
+def check_filename(path):
+    """中文正式交付件用简洁名词短语，不带日期、下划线分段、版本号与中间稿标记。"""
+    name = os.path.splitext(os.path.basename(path))[0]
+    if not re.search(r'[\u4e00-\u9fff]', name):
+        return [('交付文件名规范', True, '临时文件，不检查中文名')]
+    bad = []
+    if '_' in name:
+        bad.append('含下划线分段')
+    if re.search(r'(?:19|20)\d{2}[-_]?\d{1,2}[-_]?\d{1,2}|\d{8}', name):
+        bad.append('含日期')
+    if re.search(r'初稿|草稿|修改稿|定稿|终稿|草案|征求意见稿|送审稿|_稿|稿$', name):
+        bad.append('含中间稿标记')
+    if re.search(r'[vV]\d+(?:\.\d+)*', name):
+        bad.append('含版本号')
+    if re.search(r'建议_|_建议', name):
+        bad.append('含被引稿名')
+    return [('交付文件名规范', not bad, '、'.join(bad))]
+
+
 def check_markdown(md_path):
     results = []
     if not md_path or not os.path.exists(md_path):
         return results
     src = open(md_path, encoding='utf-8').read()
+    jargon = [w for w in BANNED_JARGON if w in strip_quoted(src)]
+    results.append(('源稿无「归口／口径」等行话', not jargon, '、'.join(jargon)))
     heads = [l.strip() for l in src.split('\n') if re.match(r'^#{2,4}\s+', l.strip())]
     bad = []
     for h in heads:
@@ -272,8 +297,9 @@ def main():
 
     struct, raw, tbls, text = check_structure(path)
     md = check_markdown(md_path)
+    fname = check_filename(path)
     render = check_render(path, raw, tbls, md_path)
-    all_results = struct + md + render
+    all_results = struct + md + fname + render
 
     print('=== 正式报告交付校验 ===')
     failed = 0
