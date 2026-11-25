@@ -116,6 +116,38 @@ def check_structure(path):
         if n:
             issues.append('%s %d' % (label, n))
     results.append(('正文无杂字符与隐藏对象', not issues, '；'.join(issues)))
+
+    # 重点内容局部加粗：允许句内加粗，禁止整段加粗、目录加粗、标记残留。
+    bold_issues, bold_runs, bold_chars, all_chars = [], 0, 0, 0
+    for p, t in zip(paras, ptexts):
+        runs = re.findall(r'<w:r\b[^>]*>.*?</w:r>', p, re.S)
+        bold_len, is_ref = 0, t.strip().startswith('〔')
+        all_chars += len(t.strip())
+        for r in runs:
+            pr = re.search(r'<w:rPr\b[^>]*>.*?</w:rPr>', r, re.S)
+            if not pr or 'SimHei' in pr.group(0):
+                continue  # 标题本身黑体加粗，不计入正文重点
+            if not re.search(r'<w:b(?:\s+w:val="(?:1|true|on)")?\s*/>', pr.group(0)):
+                continue
+            bold_runs += 1
+            bold_len += len(xml_text(r))
+        if is_ref and bold_len:
+            bold_issues.append('引用目录不得加粗')
+        body = t.strip()
+        if (len(body) >= 30 and bold_len and bold_len / len(body) > 0.7
+                and not re.match(r'^[一二三四五六七八九十]+、|^（[一二三四五六七八九十]+）|^表\s*\d+', body)):
+            bold_issues.append('疑似整段加粗：%s' % body[:16])
+        bold_chars += bold_len
+    ratio = bold_chars / all_chars if all_chars else 0
+    if all_chars and ratio > 0.30:
+        bold_issues.append('加粗总量超标（%.1f%%）' % (100 * ratio))
+    if bold_runs < 30:
+        bold_issues.append('正文重点加粗不足（%d 处）' % bold_runs)
+    if '**' in text:
+        bold_issues.append('Markdown 加粗标记残留')
+    results.append(('重点内容局部加粗', not bold_issues,
+                    '；'.join(sorted(set(bold_issues))[:5])
+                    or '正文粗体 %d 处、占正文 %.1f%%' % (bold_runs, 100 * ratio)))
     return results, raw, tbls, text
 
 
