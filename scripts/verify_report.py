@@ -26,6 +26,18 @@ BANNED_TEXT = [
 ]
 BANNED_HEADING_WORDS = ['已', '须', '应', '需', '将', '为', '有',
                         '判断', '结论', '摘要', '核心判断']
+# 用户 2026-11-25 定稿删除的策论层与自评拔高：精确短语，不用宽泛词表。
+# 「归口」「最直接」「高度接近」「逐条对应」「口径」「建议稿」等在客观陈述中合法，不得据此禁用。
+BANNED_DISCOURSE = [
+    '主口径', '申报口径', '第一表述', '本次对接以', '本次拜访',
+    '另案衔接', '平台立项取得', '书面意见', '政策窗口',
+    '国家级赋权文件', '最高位阶', '可上溯', '国家级源头',
+    '不作为项目属性', '与建议稿逐条相关的条款见表', '逐条相关的条款',
+    '可争取事项有三项', '具备项目承接主体的机构属性',
+    '平台的产出为', '不以农业人工智能中心作为', '对应关系', '对照',
+]
+# 标题与表题不得用抽象关系词收尾
+BANNED_TITLE_WORDS = ['对应关系', '对照', '申报口径', '政策窗口', '建议稿']
 LEGIT_COMPOUNDS = ['有关', '有效', '有机', '有序', '应用', '对应',
                    '具有', '为主', '所为', '认为']
 
@@ -87,6 +99,18 @@ def check_structure(path):
     prose = strip_quoted(text)
     hits = [w for w in BANNED_TEXT if w in prose]
     results.append(('无辅助性文字与套话', not hits, '、'.join(hits)))
+    discourse = [w for w in BANNED_DISCOURSE if w in prose]
+    results.append(('无策论元话语与自评拔高', not discourse, '、'.join(discourse)))
+
+    # 用户定稿口径：文号与引用序号全篇半角方括号，表题半角空格，并列引号加顿号。
+    fmt = []
+    if '〔' in text or '〕' in text:
+        fmt.append('六角括号（应统一用半角方括号）')
+    if re.search(r'”\s*[“「]', text):
+        fmt.append('并列引号之间缺顿号')
+    if re.search(r'表\s*\d+\u3000', text):
+        fmt.append('表题用了全角空格')
+    results.append(('标点与格式一致性', not fmt, '、'.join(fmt)))
 
     colors = (re.findall(r'<w:color w:val="([0-9A-Fa-f]{6})"', raw)
               + re.findall(r'<w:fill="([0-9A-Fa-f]{6})"', raw))
@@ -121,7 +145,7 @@ def check_structure(path):
     bold_issues, bold_runs, bold_chars, all_chars = [], 0, 0, 0
     for p, t in zip(paras, ptexts):
         runs = re.findall(r'<w:r\b[^>]*>.*?</w:r>', p, re.S)
-        bold_len, is_ref = 0, t.strip().startswith('〔')
+        bold_len, is_ref = 0, bool(re.match(r'^[〔\[]\s*\d+[a-z]?\s*[〕\]]', t.strip()))
         all_chars += len(t.strip())
         for r in runs:
             pr = re.search(r'<w:rPr\b[^>]*>.*?</w:rPr>', r, re.S)
@@ -168,8 +192,9 @@ def check_markdown(md_path):
         for w in LEGIT_COMPOUNDS:
             clean = clean.replace(w, '')
         hit = [w for w in BANNED_HEADING_WORDS if w in clean]
+        hit += [w for w in BANNED_TITLE_WORDS if w in core]
         if hit:
-            bad.append('%s（含 %s）' % (core, '、'.join(hit)))
+            bad.append('%s（含 %s）' % (core, '、'.join(sorted(set(hit)))))
     results.append(('公文标题规范', not bad, '；'.join(bad[:6])))
 
     lines = src.split('\n')
@@ -257,8 +282,13 @@ def main():
                            ('　' + detail) if (detail and not ok) else ''))
         if not ok:
             failed += 1
+    # Word 另存后超链接可由 HYPERLINK 域转为 <w:hyperlink> 元素，两种都算有效链接。
+    n_links = raw.count('<w:hyperlink') or raw.count('HYPERLINK')
+    if not n_links and 'word/_rels/document.xml.rels' in zipfile.ZipFile(path).namelist():
+        rels = zipfile.ZipFile(path).read('word/_rels/document.xml.rels').decode('utf-8')
+        n_links = rels.count('TargetMode="External"')
     print('正文 %d 字 / 表格 %d 张 / 超链接 %d 条'
-          % (len(text), len(tbls), raw.count('HYPERLINK')))
+          % (len(text), len(tbls), n_links))
     print('结论：%s' % ('全部通过' if not failed else '%d 项未通过，不得交付' % failed))
     return 0 if not failed else 1
 
