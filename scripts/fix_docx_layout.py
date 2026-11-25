@@ -58,6 +58,9 @@ def fix_table(tbl):
     for idx, (start, end, tr) in enumerate(spans):
         out.append(tbl[cursor:start])
         is_last_row = (idx == len(spans) - 1)
+        # 转换器常输出自闭合 <w:trPr/>；必须先展开，否则子元素会落在 trPr 外，
+        # Word 会静默忽略该属性，形成「计数达标但实际无效」的假修复。
+        tr = re.sub(r'<w:trPr\s*/>', '<w:trPr></w:trPr>', tr, count=1)
         if re.search(r'<w:trPr\b[^>]*>', tr):
             if '<w:cantSplit' not in tr:
                 tr = re.sub(r'(<w:trPr\b[^>]*>)', r'\1<w:cantSplit/>', tr, count=1)

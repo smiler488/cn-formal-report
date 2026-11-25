@@ -69,9 +69,12 @@ def check_structure(path):
     bad_rows = []
     for i, t in enumerate(tbls, 1):
         rows = re.findall(r'<w:tr\b[^>]*>.*?</w:tr>', t, re.S)
-        if t.count('cantSplit') < len(rows):
-            bad_rows.append('表%d 行不分页属性缺失' % i)
-        if 'tblHeader' not in rows[0]:
+        for j, r in enumerate(rows, 1):
+            pr = re.search(r'<w:trPr\b[^>]*>(.*?)</w:trPr>', r, re.S)
+            if not pr or 'cantSplit' not in pr.group(1):
+                bad_rows.append('表%d 第%d行 cantSplit 缺失或不在 trPr 内' % (i, j))
+        pr0 = re.search(r'<w:trPr\b[^>]*>(.*?)</w:trPr>', rows[0], re.S)
+        if not pr0 or 'tblHeader' not in pr0.group(1):
             bad_rows.append('表%d 表头未设重复' % i)
         if 'keepNext' in rows[-1]:
             bad_rows.append('表%d 末行未断链' % i)
@@ -92,6 +95,27 @@ def check_structure(path):
                   if v.lower() not in ('none', 'auto')]
     results.append(('三线表与正文无彩色', not bad_colors and not highlights,
                     '色彩值 %s / 高亮 %s' % (bad_colors[:4], highlights[:4])))
+
+    # 正文洁净度：Word 视图辅助符号不是文档缺陷，但生成链路不得写入真实杂字符。
+    paras = re.findall(r'<w:p\b[^>]*>.*?</w:p>', raw, re.S)
+    ptexts = [xml_text(q) for q in paras]
+    issues = []
+    n_empty = sum(1 for t in ptexts if not t.strip())
+    n_solo = sum(1 for t in ptexts
+                 if t.strip() and re.fullmatch(r'[\s.。·•\-—]*', t.strip()))
+    n_head = sum(1 for t in ptexts if t[:1] in (' ', '.', '·', '。', '\u3000'))
+    n_tail = sum(1 for t in ptexts if t[-1:] in (' ', '.', '·', '\u3000'))
+    n_hidden = raw.count('w:vanish')
+    n_br = raw.count('<w:br')
+    n_shape = (raw.count('<w:drawing') + raw.count('<w:pict')
+               + raw.count('v:shape'))
+    for label, n in [('空段落', n_empty), ('孤立标点段落', n_solo),
+                     ('段首空格点号', n_head), ('段尾空格点号', n_tail),
+                     ('隐藏文字', n_hidden), ('手动换行', n_br),
+                     ('形状文本框', n_shape)]:
+        if n:
+            issues.append('%s %d' % (label, n))
+    results.append(('正文无杂字符与隐藏对象', not issues, '；'.join(issues)))
     return results, raw, tbls, text
 
 
